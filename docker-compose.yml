@@ -1,0 +1,34 @@
+services:
+  legacy-db:
+    image: postgres:16-alpine
+    container_name: necrosql-legacy-db
+    environment:
+      POSTGRES_USER: necrosql
+      POSTGRES_PASSWORD: necrosql_password
+      POSTGRES_DB: legacy_erp_1998
+    volumes:
+      - ./legacy-corpses:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U necrosql -d legacy_erp_1998"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  necrosql-engine:
+    build: .
+    container_name: necrosql-engine
+    depends_on:
+      legacy-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://necrosql:necrosql_password@legacy-db:5432/legacy_erp_1998
+      PBT_RUNS: "1000"
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./packages:/app/packages
+      - ./legacy-corpses:/app/legacy-corpses
+      - ./apps:/app/apps
+      - ./package.json:/app/package.json
+    command: ["npm", "run", "dashboard"]

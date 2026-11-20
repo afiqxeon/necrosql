@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Auto-Run Differential PBT on Resurrection",
+  "description": "Triggers fast-check differential property-based testing whenever a resurrected TypeScript service is edited or saved.",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "packages/resurrected-services/src/**/*.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A resurrected service file was modified. Run npm run test:pbt to execute the differential Property-Based Testing oracle against the legacy SQL script. If any counterexample is found, inspect the shrunk input, fix the Decimal rounding or branch condition, and re-run until 10,000/10,000 runs pass with 0 drift."
+  }
+}

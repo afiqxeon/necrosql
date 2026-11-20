@@ -1,0 +1,25 @@
+{
+  "name": "necrosql",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:pbt": "tsx packages/pbt-verifier/src/runPbt.ts",
+    "test:pbt:naive": "TARGET_MODE=naive tsx packages/pbt-verifier/src/runPbt.ts",
+    "ast": "tsx packages/ast-extractor/src/index.ts",
+    "mcp": "tsx packages/mcp-server/src/index.ts",
+    "dashboard": "tsx apps/dashboard/server.ts"
+  },
+  "dependencies": {
+    "decimal.js": "^10.4.3",
+    "fast-check": "^3.22.0",
+    "pg": "^8.13.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
