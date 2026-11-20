@@ -138,6 +138,96 @@ const HTML_PAGE = `<!DOCTYPE html>
       <pre id="pbt-detail" class="hidden mt-4 p-4 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono overflow-x-auto text-amber-300"></pre>
     </section>
 
+    <!-- Interactive Live Edge-Case Playground -->
+    <section class="mb-6 rounded-xl border border-slate-800 bg-[#111827]/90 p-4">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Interactive Live Oracle Sandbox
+          </p>
+          <div class="mt-2 flex flex-wrap items-center gap-3">
+            <label class="flex flex-col text-xs text-slate-300">
+              <span class="mb-1 text-[11px] text-slate-400">Hours</span>
+              <input
+                id="inp-hours"
+                type="text"
+                value="35.80"
+                class="w-28 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 font-mono text-sm text-white focus:border-emerald-500 focus:outline-none"
+              />
+            </label>
+            <label class="flex flex-col text-xs text-slate-300">
+              <span class="mb-1 text-[11px] text-slate-400">Hourly Rate ($)</span>
+              <input
+                id="inp-rate"
+                type="text"
+                value="17.69"
+                class="w-28 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 font-mono text-sm text-white focus:border-emerald-500 focus:outline-none"
+              />
+            </label>
+            <label class="mt-4 flex cursor-pointer items-center gap-2 text-xs text-slate-300">
+              <input
+                id="inp-holiday"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-500"
+              />
+              <span>Holiday (2.0x OT)</span>
+            </label>
+            <button
+              id="btn-compare-live"
+              onclick="runSingleCompare()"
+              class="mt-4 rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-500"
+            >
+              Compare Live
+            </button>
+          </div>
+        </div>
+
+        <!-- Preset cepat 1-klik untuk Juri -->
+        <div class="flex flex-wrap gap-2">
+          <button
+            onclick="applyPreset('35.80', '17.69', false)"
+            class="rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 hover:border-rose-500 hover:text-white"
+          >
+            Preset: Float Drift Bug
+          </button>
+          <button
+            onclick="applyPreset('45.50', '28.75', true)"
+            class="rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 hover:border-emerald-500 hover:text-white"
+          >
+            Preset: Holiday Overtime
+          </button>
+          <button
+            onclick="applyPreset('-5', '20.00', false)"
+            class="rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300 hover:border-amber-500 hover:text-white"
+          >
+            Preset: Invalid Guard (≤ 0)
+          </button>
+        </div>
+      </div>
+
+      <!-- Hasil Perbandingan 3 Kolom -->
+      <div id="live-compare-result" class="mt-4 hidden grid-cols-1 gap-3 border-t border-slate-800 pt-3 md:grid-cols-3">
+        <div class="rounded-lg border border-slate-800 bg-slate-950/70 p-3 font-mono text-xs">
+          <div class="mb-1 text-[11px] font-sans font-semibold text-amber-400">PostgreSQL 16 (Legacy Oracle)</div>
+          <div id="res-oracle" class="text-slate-200"></div>
+        </div>
+        <div id="card-naive" class="rounded-lg border border-slate-800 bg-slate-950/70 p-3 font-mono text-xs">
+          <div class="mb-1 flex items-center justify-between font-sans text-[11px] font-semibold">
+            <span class="text-slate-300">Naive JS Float</span>
+            <span id="badge-naive"></span>
+          </div>
+          <div id="res-naive" class="text-slate-200"></div>
+        </div>
+        <div id="card-resurrected" class="rounded-lg border border-slate-800 bg-slate-950/70 p-3 font-mono text-xs">
+          <div class="mb-1 flex items-center justify-between font-sans text-[11px] font-semibold">
+            <span class="text-emerald-400">Resurrected Decimal.js</span>
+            <span id="badge-resurrected"></span>
+          </div>
+          <div id="res-resurrected" class="text-slate-200"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- 3-Column Comparison -->
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col">
@@ -230,6 +320,67 @@ const HTML_PAGE = `<!DOCTYPE html>
       }
     }
 
+    function applyPreset(hours, rate, isHoliday) {
+      document.getElementById("inp-hours").value = hours;
+      document.getElementById("inp-rate").value = rate;
+      document.getElementById("inp-holiday").checked = isHoliday;
+      runSingleCompare();
+    }
+
+    async function runSingleCompare() {
+      const btn = document.getElementById("btn-compare-live");
+      const resultBox = document.getElementById("live-compare-result");
+      const hours = document.getElementById("inp-hours").value;
+      const hourlyRate = document.getElementById("inp-rate").value;
+      const isHoliday = document.getElementById("inp-holiday").checked;
+
+      btn.disabled = true;
+      btn.textContent = "Comparing...";
+
+      try {
+        const res = await fetch("/api/compare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hours, hourlyRate, isHoliday }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Comparison failed");
+
+        const fmt = (o) => "Gross: $" + o.grossPay + " | Tax: $" + o.taxWithheld + " | Net: $" + o.netPay;
+        document.getElementById("res-oracle").textContent = fmt(data.oracle);
+        document.getElementById("res-naive").textContent = fmt(data.naive);
+        document.getElementById("res-resurrected").textContent = fmt(data.resurrected);
+
+        const naiveBadge = document.getElementById("badge-naive");
+        const naiveCard = document.getElementById("card-naive");
+        if (data.naiveDrift) {
+          naiveBadge.innerHTML = '<span class="rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-400">DRIFT</span>';
+          naiveCard.className = "rounded-lg border border-rose-500/50 bg-rose-950/20 p-3 font-mono text-xs";
+        } else {
+          naiveBadge.innerHTML = '<span class="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">MATCH</span>';
+          naiveCard.className = "rounded-lg border border-slate-800 bg-slate-950/70 p-3 font-mono text-xs";
+        }
+
+        const resBadge = document.getElementById("badge-resurrected");
+        const resCard = document.getElementById("card-resurrected");
+        if (data.resurrectedDrift) {
+          resBadge.innerHTML = '<span class="rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-400">DRIFT</span>';
+          resCard.className = "rounded-lg border border-rose-500/50 bg-rose-950/20 p-3 font-mono text-xs";
+        } else {
+          resBadge.innerHTML = '<span class="rounded bg-emerald-500/20 px-1.5 py-0.5 text-emerald-400">EXACT MATCH</span>';
+          resCard.className = "rounded-lg border border-emerald-500/50 bg-emerald-950/20 p-3 font-mono text-xs";
+        }
+
+        resultBox.classList.remove("hidden");
+        resultBox.classList.add("grid");
+      } catch (err) {
+        alert("Error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Compare Live";
+      }
+    }
+
     loadWorkspace();
   </script>
 </body>
@@ -276,6 +427,74 @@ const server = http.createServer(
     const report = await runDifferentialPbt(mode, runs);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(report));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/compare") {
+    let body = "";
+    req.on("data", (chunk: Buffer) => {
+      body += chunk.toString();
+    });
+    req.on("end", async () => {
+      try {
+        const parsed = JSON.parse(body || "{}") as {
+          hours?: string | number;
+          hourlyRate?: string | number;
+          isHoliday?: boolean;
+        };
+
+        const hours = String(parsed.hours ?? "35.80").trim();
+        const hourlyRate = String(parsed.hourlyRate ?? "17.69").trim();
+        const isHoliday = Boolean(parsed.isHoliday);
+
+        // 1. Legacy Oracle (PostgreSQL 16)
+        const pgRes = await pool.query(
+          "SELECT gross_pay::text, tax_withheld::text, net_pay::text FROM sp_calc_payroll_1998($1::numeric, $2::numeric, $3::boolean)",
+          [hours, hourlyRate, isHoliday],
+        );
+        const oracle = {
+          grossPay: pgRes.rows[0].gross_pay as string,
+          taxWithheld: pgRes.rows[0].tax_withheld as string,
+          netPay: pgRes.rows[0].net_pay as string,
+        };
+
+        // 2. Naive JS Float (sesuaikan nama fungsi naive)
+        const naive = calculatePayrollNaiveFloat({ hours, hourlyRate, isHoliday });
+
+        // 3. Resurrected Decimal.js + Zod
+        const resurrected = calculatePayrollResurrected({
+          hours,
+          hourlyRate,
+          isHoliday,
+        });
+
+        const naiveDrift =
+          naive.grossPay !== oracle.grossPay ||
+          naive.taxWithheld !== oracle.taxWithheld ||
+          naive.netPay !== oracle.netPay;
+
+        const resurrectedDrift =
+          resurrected.grossPay !== oracle.grossPay ||
+          resurrected.taxWithheld !== oracle.taxWithheld ||
+          resurrected.netPay !== oracle.netPay;
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            input: { hours, hourlyRate, isHoliday },
+            oracle,
+            naive,
+            resurrected,
+            naiveDrift,
+            resurrectedDrift,
+          }),
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Invalid input";
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: message }));
+      }
+    });
     return;
   }
 
