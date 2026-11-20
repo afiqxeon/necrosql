@@ -20,11 +20,11 @@ const pool = new Pool({ connectionString: DATABASE_URL });
 async function queryLegacyOracle(
   hours: string,
   hourlyRate: string,
-  isHoliday: boolean
+  isHoliday: boolean,
 ): Promise<PayrollOutput> {
   const result = await pool.query(
     "SELECT gross_pay::text, tax_withheld::text, net_pay::text FROM sp_calc_payroll_1998($1::numeric, $2::numeric, $3::boolean)",
-    [hours, hourlyRate, isHoliday]
+    [hours, hourlyRate, isHoliday],
   );
   const row = result.rows[0];
   return {
@@ -45,10 +45,10 @@ async function runDifferentialPbt(mode: "naive" | "resurrected", runs: number) {
   try {
     await fc.assert(
       fc.asyncProperty(
-        fc.integer({ min: -500, max: 12000 }).map((n) => (n / 100).toFixed(2)),
-        fc.integer({ min: -200, max: 15000 }).map((n) => (n / 100).toFixed(2)),
+        fc.integer({ min: -500, max: 12000 }).map((n: number) => (n / 100).toFixed(2)),
+        fc.integer({ min: -200, max: 15000 }).map((n: number) => (n / 100).toFixed(2)),
         fc.boolean(),
-        async (hours, hourlyRate, isHoliday) => {
+        async (hours: string, hourlyRate: string, isHoliday: boolean) => {
           executed++;
           const legacy = await queryLegacyOracle(hours, hourlyRate, isHoliday);
           const candidate = serviceFn({ hours, hourlyRate, isHoliday });
@@ -65,9 +65,9 @@ async function runDifferentialPbt(mode: "naive" | "resurrected", runs: number) {
             };
             throw new Error("BEHAVIORAL_DRIFT_DETECTED");
           }
-        }
+        },
       ),
-      { numRuns: runs }
+      { numRuns: runs },
     );
 
     return {
@@ -99,6 +99,7 @@ const HTML_PAGE = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NecroSQL — Necromancy Lab Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body class="bg-zinc-950 text-zinc-100 min-h-screen font-sans antialiased">
   <header class="border-b border-zinc-800 bg-zinc-900/70 backdrop-blur sticky top-0 z-10">
@@ -234,20 +235,34 @@ const HTML_PAGE = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+const server = http.createServer(
+  async (req: http.IncomingMessage, res: http.ServerResponse) => {
+    const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
-  if (req.method === "GET" && url.pathname === "/") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(HTML_PAGE);
-    return;
-  }
+    if (req.method === "GET" && url.pathname === "/") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(HTML_PAGE);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/styles.css") {
+      const cssPath = path.resolve("apps/dashboard/public/styles.css");
+      if (fs.existsSync(cssPath)) {
+        const css = fs.readFileSync(cssPath, "utf-8");
+        res.writeHead(200, { "Content-Type": "text/css" });
+        res.end(css);
+      } else {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not Found");
+      }
+      return;
+    }
 
   if (req.method === "GET" && url.pathname === "/api/workspace") {
     const ast = extractLegacyAst("legacy-corpses/payroll_1998.sql");
     const tsSource = fs.readFileSync(
       path.resolve("packages/resurrected-services/src/payroll1998.ts"),
-      "utf-8"
+      "utf-8",
     );
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ast, tsSource }));
@@ -255,7 +270,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/pbt/run") {
-    const mode = url.searchParams.get("mode") === "naive" ? "naive" : "resurrected";
+    const mode =
+      url.searchParams.get("mode") === "naive" ? "naive" : "resurrected";
     const runs = Math.min(Number(url.searchParams.get("runs") ?? "1000"), 5000);
     const report = await runDifferentialPbt(mode, runs);
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -268,5 +284,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`NecroSQL Necromancy Lab Dashboard listening at http://localhost:${PORT}`);
+  console.log(
+    `NecroSQL Necromancy Lab Dashboard listening at http://localhost:${PORT}`,
+  );
 });

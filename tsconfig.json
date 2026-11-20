@@ -9,6 +9,7 @@
     "outDir": "dist"
   },
   "include": [
-    "packages/**/*.ts"
+    "packages/**/*.ts",
+    "apps/**/*.ts"
   ]
 }
