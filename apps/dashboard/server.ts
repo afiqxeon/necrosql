@@ -231,11 +231,38 @@ const HTML_PAGE = `<!DOCTYPE html>
     <!-- 3-Column Comparison -->
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-bold text-amber-400">1. Corpse Code (1998 PL/pgSQL)</h3>
-          <span class="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">payroll_1998.sql</span>
+        <!-- Header Panel 1 -->
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-sm font-bold text-amber-400">1. Corpse Code (PL/pgSQL)</h2>
+          <div class="flex items-center gap-2">
+            <select
+              id="corpus-switcher"
+              onchange="switchCorpus(this.value)"
+              class="max-w-[160px] truncate rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[11px] text-slate-200 focus:border-amber-500 focus:outline-none"
+            >
+              <option value="payroll_1998.sql">payroll_1998.sql</option>
+            </select>
+            <label class="cursor-pointer rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-300 hover:border-amber-400 hover:text-white">
+              Upload .sql
+              <input id="inp-sql-file" type="file" accept=".sql,.txt" class="hidden" onchange="handleSqlUpload(event)" />
+            </label>
+            <button
+              id="btn-resurrect-sql"
+              onclick="resurrectCustomSql()"
+              class="rounded bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-slate-950 transition hover:bg-amber-400"
+            >
+              Resurrect SQL
+            </button>
+          </div>
         </div>
-        <pre id="sql-source" class="text-xs font-mono text-zinc-300 bg-zinc-950 p-3 rounded-lg overflow-auto max-h-[460px] flex-1"></pre>
+
+        <!-- Body Panel 1 (ganti <pre id="sql-code"> dengan <textarea>) -->
+        <textarea
+          id="sql-editor"
+          spellcheck="false"
+          class="h-[460px] w-full resize-none rounded-lg border border-slate-800 bg-black/80 p-3 font-mono text-xs leading-relaxed text-slate-200 focus:border-amber-500 focus:outline-none"
+        ></textarea>
+        <p id="resurrect-status" class="mt-2 text-[11px] text-slate-400"></p>
       </div>
 
       <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col">
@@ -247,22 +274,86 @@ const HTML_PAGE = `<!DOCTYPE html>
       </div>
 
       <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 flex flex-col">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-bold text-emerald-400">3. Resurrected Service (Decimal.js + Zod)</h3>
-          <span class="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">payroll1998.ts</span>
+        <!-- Header Panel 3 -->
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-sm font-bold text-emerald-400">3. Resurrected Service (Decimal.js + Zod)</h2>
+          <div class="flex items-center gap-2">
+            <span id="ts-filename-badge" class="rounded bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-300">
+              payroll1998.ts
+            </span>
+            <button
+              id="btn-copy-ts"
+              onclick="copyResurrectedTs()"
+              class="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-300 transition hover:border-emerald-400 hover:text-white"
+            >
+              Copy .ts
+            </button>
+            <button
+              onclick="downloadResurrectedTs()"
+              class="rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-500"
+            >
+              Download .ts
+            </button>
+          </div>
         </div>
-        <pre id="ts-source" class="text-xs font-mono text-zinc-300 bg-zinc-950 p-3 rounded-lg overflow-auto max-h-[460px] flex-1"></pre>
+        <pre id="ts-code" class="text-xs font-mono text-zinc-300 bg-zinc-950 p-3 rounded-lg overflow-auto max-h-[460px] flex-1"></pre>
       </div>
     </section>
   </main>
 
   <script>
-    async function loadWorkspace() {
-      const res = await fetch('/api/workspace');
-      const data = await res.json();
-      document.getElementById('sql-source').textContent = data.ast.rawSource;
-      document.getElementById('ts-source').textContent = data.tsSource;
-      document.getElementById('ast-badge').textContent = data.ast.branches.length + ' CFG Branches | ' + data.ast.roundingOps.length + ' ROUND Ops';
+    let activeSqlFilename = "payroll_1998.sql";
+    const corpusStore = {};
+
+    function renderTsPanel(tsFilename, tsCode) {
+      const badgeEl = document.getElementById("ts-filename-badge");
+      const codeEl = document.getElementById("ts-code");
+      if (badgeEl) badgeEl.textContent = tsFilename;
+      if (codeEl) codeEl.textContent = tsCode;
+    }
+
+    function registerCorpus(filename, sql, analysis, tsFilename, tsCode) {
+      corpusStore[filename] = { sql, analysis, tsFilename, tsCode };
+      const select = document.getElementById("corpus-switcher");
+      if (!select) return;
+
+      let option = Array.from(select.options).find((o) => o.value === filename);
+      if (!option) {
+        option = document.createElement("option");
+        option.value = filename;
+        option.textContent = filename;
+        select.appendChild(option);
+      }
+      select.value = filename;
+    }
+
+    function switchCorpus(filename) {
+      const entry = corpusStore[filename];
+      if (!entry) return;
+
+      activeSqlFilename = filename;
+      document.getElementById("sql-editor").value = entry.sql;
+      renderAnalysisPanel(entry.analysis);
+      renderTsPanel(entry.tsFilename, entry.tsCode);
+      document.getElementById("resurrect-status").innerHTML =
+        '<span class="text-slate-400">Switched active corpus to <span class="font-mono text-slate-200">' + filename + '</span></span>';
+    }
+
+    function handleSqlUpload(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      activeSqlFilename = file.name;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById("sql-editor").value = e.target.result;
+        document.getElementById("resurrect-status").textContent = "Loaded " + file.name + '. Click "Resurrect SQL" to analyze.';
+      };
+      reader.readAsText(file);
+    }
+
+    function renderAnalysisPanel(ast) {
+      if (!ast) return;
+      document.getElementById('ast-badge').textContent = (ast.branches?.length || 0) + ' CFG Branches | ' + (ast.roundingOps?.length || 0) + ' ROUND Ops';
 
       const astEl = document.getElementById('ast-content');
       astEl.innerHTML = '';
@@ -272,7 +363,7 @@ const HTML_PAGE = `<!DOCTYPE html>
       earsTitle.textContent = 'Synthesized EARS Requirements';
       astEl.appendChild(earsTitle);
 
-      data.ast.synthesizedEars.forEach(rule => {
+      (ast.synthesizedEars || []).forEach(rule => {
         const card = document.createElement('div');
         card.className = 'p-2.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-200 font-mono';
         card.textContent = rule;
@@ -284,12 +375,89 @@ const HTML_PAGE = `<!DOCTYPE html>
       cfgTitle.textContent = 'Control-Flow Graph (CFG) Nodes';
       astEl.appendChild(cfgTitle);
 
-      data.ast.branches.forEach(b => {
+      (ast.branches || []).forEach(b => {
         const row = document.createElement('div');
         row.className = 'p-2 rounded bg-zinc-950 border border-zinc-800 flex justify-between font-mono';
         row.innerHTML = '<span class="text-sky-400">' + b.id + ' [' + b.type + ']</span><span class="text-zinc-300">' + b.condition + ' (L' + b.line + ')</span>';
         astEl.appendChild(row);
       });
+    }
+
+    async function resurrectCustomSql() {
+      const btn = document.getElementById("btn-resurrect-sql");
+      const statusEl = document.getElementById("resurrect-status");
+      const sql = document.getElementById("sql-editor").value;
+
+      btn.disabled = true;
+      btn.textContent = "Analyzing...";
+      statusEl.textContent = "Validating syntax against PostgreSQL 16 & extracting AST...";
+
+      try {
+        const res = await fetch("/api/resurrect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: activeSqlFilename, sql }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Resurrection failed");
+
+        renderAnalysisPanel(data.analysis);
+        renderTsPanel(data.tsFilename, data.tsCode);
+        registerCorpus(data.filename || activeSqlFilename, data.sql, data.analysis, data.tsFilename, data.tsCode);
+
+        statusEl.innerHTML = '<span class="text-emerald-400">✓ Validated in PostgreSQL 16 & AST extracted (' + activeSqlFilename + ')</span>';
+      } catch (err) {
+        statusEl.innerHTML = '<span class="text-rose-400">✗ ' + err.message + '</span>';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Resurrect SQL";
+      }
+    }
+
+    async function copyResurrectedTs() {
+      const codeEl = document.getElementById("ts-code");
+      const btn = document.getElementById("btn-copy-ts");
+      if (!codeEl) return;
+
+      try {
+        await navigator.clipboard.writeText(codeEl.textContent || "");
+        const original = btn.textContent;
+        btn.textContent = "Copied!";
+        btn.classList.add("border-emerald-500", "text-emerald-400");
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.classList.remove("border-emerald-500", "text-emerald-400");
+        }, 1500);
+      } catch {
+        alert("Clipboard access denied.");
+      }
+    }
+
+    function downloadResurrectedTs() {
+      const codeEl = document.getElementById("ts-code");
+      const badgeEl = document.getElementById("ts-filename-badge");
+      if (!codeEl) return;
+
+      const filename = (badgeEl?.textContent || "resurrected_service.ts").trim();
+      const blob = new Blob([codeEl.textContent || ""], { type: "text/typescript;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    async function loadWorkspace() {
+      const res = await fetch('/api/workspace');
+      const data = await res.json();
+      document.getElementById('sql-editor').value = data.sql || data.ast?.rawSource || "";
+      renderAnalysisPanel(data.analysis || data.ast);
+      renderTsPanel("payroll1998.ts", data.tsCode || data.tsSource);
+      registerCorpus("payroll_1998.sql", data.sql, data.analysis, "payroll1998.ts", data.tsCode);
     }
 
     async function runPbt(mode) {
@@ -386,6 +554,118 @@ const HTML_PAGE = `<!DOCTYPE html>
 </body>
 </html>`;
 
+function synthesizeResurrectedTs(
+  sql: string,
+  analysis: { earsRequirements?: string[]; synthesizedEars?: string[] },
+): {
+  tsFilename: string;
+  tsCode: string;
+} {
+  // 1. Extract function name (e.g., sp_calc_invoice_2004 -> calcInvoice2004)
+  const fnMatch = sql.match(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([a-zA-Z0-9_]+)/i);
+  const rawFnName = fnMatch?.[1] || "sp_custom_legacy";
+  const cleanName = rawFnName.replace(/^sp_/i, "");
+  const camelName = cleanName.replace(/_([a-z0-9])/gi, (_, c: string) => c.toUpperCase());
+  const pascalName = camelName.charAt(0).toUpperCase() + camelName.slice(1);
+  const tsFilename = `${camelName}.ts`;
+
+  // 2. Extract input parameters from function signature
+  const paramsMatch = sql.match(/FUNCTION\s+[a-zA-Z0-9_]+\s*\(([\s\S]*?)\)\s*RETURNS/i);
+  const cleanedParams = (paramsMatch?.[1] || "").replace(/\([^)]*\)/g, "");
+  const rawParams = cleanedParams
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const zodFields: string[] = [];
+  const decimalInits: string[] = [];
+
+  for (const param of rawParams) {
+    const parts = param.split(/\s+/);
+    const colName = (parts[0] || "param").replace(/^p_/i, "");
+    const fieldName = colName.replace(/_([a-z0-9])/gi, (_, c: string) => c.toUpperCase());
+    const sqlType = (parts[1] || "NUMERIC").toUpperCase();
+
+    if (sqlType.includes("BOOL")) {
+      zodFields.push(`  ${fieldName}: z.boolean(),`);
+    } else if (sqlType.includes("CHAR") || sqlType.includes("TEXT")) {
+      zodFields.push(`  ${fieldName}: z.string(),`);
+    } else {
+      zodFields.push(`  ${fieldName}: z.union([z.string(), z.number()]),`);
+      decimalInits.push(`  const ${fieldName} = new Decimal(input.${fieldName});`);
+    }
+  }
+
+  // 3. Extract output columns from RETURNS TABLE (...) if present
+  const tableMatch = sql.match(
+    /RETURNS\s+TABLE\s*\(([\s\S]*?)\)\s*(?=LANGUAGE|AS|\$\$|BEGIN|$)/i,
+  );
+  const outFields: string[] = [];
+  const outReturns: string[] = [];
+
+  if (tableMatch?.[1]) {
+    const cleanedTable = tableMatch[1].replace(/\([^)]*\)/g, "");
+    const cols = cleanedTable.split(",").map((c) => c.trim()).filter(Boolean);
+    for (const col of cols) {
+      const colName = (col.split(/\s+/)[0] || "result").replace(/_([a-z0-9])/gi, (_, c: string) =>
+        c.toUpperCase(),
+      );
+      outFields.push(`  ${colName}: string;`);
+      outReturns.push(
+        `    ${colName}: new Decimal(0).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2),`,
+      );
+    }
+  } else {
+    outFields.push(`  result: string;`);
+    outReturns.push(
+      `    result: new Decimal(0).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2),`,
+    );
+  }
+
+  const earsList = analysis.earsRequirements || analysis.synthesizedEars || [];
+  const earsComments = earsList
+    .map((req) => ` * - ${req}`)
+    .join("\n");
+
+  const tsCode = `import { Decimal } from "decimal.js";
+import { z } from "zod";
+
+/**
+ * Input validation schema mirroring ${rawFnName} parameters.
+ * Synthesized deterministically by NecroSQL AST Engine.
+ */
+export const ${pascalName}InputSchema = z.object({
+${zodFields.join("\n") || "  value: z.union([z.string(), z.number()]),"}
+});
+
+export type ${pascalName}Input = z.infer<typeof ${pascalName}InputSchema>;
+
+export interface ${pascalName}Output {
+${outFields.join("\n")}
+}
+
+/**
+ * Precision-safe resurrected service for ${rawFnName}.
+ * Obeys NecroSQL Steering Guardrails: zero native JS float arithmetic, Decimal.ROUND_HALF_UP.
+ *
+ * Synthesized EARS Contracts:
+${earsComments || " * - Preserve exact legacy PostgreSQL NUMERIC semantics."}
+ */
+export function ${camelName}Resurrected(rawInput: ${pascalName}Input): ${pascalName}Output {
+  const input = ${pascalName}InputSchema.parse(rawInput);
+
+${decimalInits.join("\n") || "  // All numeric inputs coerced into Decimal.js"}
+
+  // TODO: Bind branch expressions from ${rawFnName} & verify via 1,000-run Differential PBT
+  return {
+${outReturns.join("\n")}
+  };
+}
+`;
+
+  return { tsFilename, tsCode };
+}
+
 const server = http.createServer(
   async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -416,7 +696,16 @@ const server = http.createServer(
       "utf-8",
     );
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ast, tsSource }));
+    res.end(
+      JSON.stringify({
+        ast,
+        tsSource,
+        tsCode: tsSource,
+        tsFilename: "payroll1998.ts",
+        sql: ast.rawSource,
+        analysis: ast,
+      }),
+    );
     return;
   }
 
@@ -491,6 +780,69 @@ const server = http.createServer(
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : "Invalid input";
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: message }));
+      }
+    });
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    (url.pathname === "/api/resurrect" || req.url === "/api/resurrect")
+  ) {
+    let body = "";
+    req.on("data", (chunk: Buffer) => {
+      body += chunk.toString();
+    });
+    req.on("end", async () => {
+      try {
+        const parsed = JSON.parse(body || "{}") as {
+          filename?: string;
+          sql?: string;
+        };
+
+        const filename = (parsed.filename || "custom_legacy.sql").trim();
+        const sql = (parsed.sql || "").trim();
+
+        if (!sql) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "SQL source cannot be empty." }));
+          return;
+        }
+
+        // 1. Validate syntax directly in PostgreSQL 16 Sandbox (rollback-safe)
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query(sql);
+          await client.query("ROLLBACK");
+        } finally {
+          client.release();
+        }
+
+        // 2. Extract AST & EARS using legacy AST extractor from temporary file
+        const tempPath = path.join("/tmp", "necrosql_custom.sql");
+        fs.writeFileSync(tempPath, sql, "utf-8");
+        const analysis = extractLegacyAst(tempPath);
+        analysis.fileName = filename;
+
+        const { tsFilename, tsCode } = synthesizeResurrectedTs(sql, analysis);
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            filename,
+            sql,
+            analysis,
+            tsFilename,
+            tsCode,
+            pgValidated: true,
+          }),
+        );
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Failed to parse or validate SQL";
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: message }));
       }
